@@ -21,9 +21,8 @@ from flask_cognito_lib.utils import (
     secure_random,
 )
 
-cfg = Config()
 cognito_auth: CognitoAuth = LocalProxy(
-    lambda: app.extensions[cfg.APP_EXTENSION_KEY]
+    lambda: app.extensions[Config.APP_EXTENSION_KEY]
 )  # type: ignore
 
 
@@ -40,7 +39,7 @@ def store_tokens(tokens: CognitoTokenResponse, nonce: Optional[str] = None) -> N
     # validate the JWT and get the claims
     claims = cognito_auth.verify_access_token(
         token=tokens.access_token,
-        leeway=cfg.cognito_expiration_leeway,
+        leeway=cognito_auth.cfg.cognito_expiration_leeway,
     )
     session.update({"claims": claims})
 
@@ -49,7 +48,7 @@ def store_tokens(tokens: CognitoTokenResponse, nonce: Optional[str] = None) -> N
         user_info = cognito_auth.verify_id_token(
             token=tokens.id_token,
             nonce=nonce,
-            leeway=cfg.cognito_expiration_leeway,
+            leeway=cognito_auth.cfg.cognito_expiration_leeway,
         )
         session.update({"user_info": user_info})
 
@@ -61,13 +60,13 @@ def store_tokens(tokens: CognitoTokenResponse, nonce: Optional[str] = None) -> N
 def store_access_token(tokens: CognitoTokenResponse, resp: Response) -> None:
     """Store the access token in a HTTP only secure cookie"""
     resp.set_cookie(
-        key=cfg.COOKIE_NAME,
+        key=cognito_auth.cfg.COOKIE_NAME,
         value=tokens.access_token,
-        max_age=cfg.max_cookie_age_seconds,
+        max_age=cognito_auth.cfg.max_cookie_age_seconds,
         httponly=True,
         secure=True,
-        samesite=cfg.cookie_samesite,
-        domain=cfg.cookie_domain,
+        samesite=cognito_auth.cfg.cookie_samesite,
+        domain=cognito_auth.cfg.cookie_domain,
     )
 
 
@@ -100,7 +99,7 @@ def cognito_login(fn):
                 code_challenge=session["code_challenge"],
                 state=session["state"],
                 nonce=session["nonce"],
-                scopes=cfg.cognito_scopes,
+                scopes=cognito_auth.cfg.cognito_scopes,
             )
 
         return redirect(login_url)
@@ -194,8 +193,10 @@ def cognito_logout(fn):
     def wrapper(*args, **kwargs):
         with app.app_context():
             # logout at cognito and remove the cookies
-            resp = redirect(cfg.logout_endpoint)
-            resp.delete_cookie(key=cfg.COOKIE_NAME, domain=cfg.cookie_domain)
+            resp = redirect(cognito_auth.cfg.logout_endpoint)
+            resp.delete_cookie(
+                key=cognito_auth.cfg.COOKIE_NAME, domain=cognito_auth.cfg.cookie_domain
+            )
 
         # Cognito will redirect to the sign-out URL (if set) or else use
         # the callback URL
@@ -212,15 +213,15 @@ def auth_required(groups: Optional[Iterable[str]] = None, any_group: bool = Fals
         def decorator(*args, **kwargs):
             with app.app_context():
                 # return early if the extension is disabled
-                if cfg.disabled:
+                if cognito_auth.cfg.disabled:
                     return fn(*args, **kwargs)
 
                 # Try and validate the access token stored in the cookie
                 try:
-                    access_token = request.cookies.get(cfg.COOKIE_NAME)
+                    access_token = request.cookies.get(cognito_auth.cfg.COOKIE_NAME)
                     claims = cognito_auth.verify_access_token(
                         token=access_token,
-                        leeway=cfg.cognito_expiration_leeway,
+                        leeway=cognito_auth.cfg.cognito_expiration_leeway,
                     )
                     valid = True
 
